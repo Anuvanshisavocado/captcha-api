@@ -1,32 +1,54 @@
 from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from pytesseract import image_to_string
 from PIL import Image
-import pytesseract
-import re
 import io
+import re
 
 app = FastAPI()
 
+# Enable CORS for all origins
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 @app.post("/captcha")
 async def solve_captcha(file: UploadFile = File(...)):
-    # Read image
-    contents = await file.read()
-    image = Image.open(io.BytesIO(contents))
+    try:
+        # Read image bytes
+        image_data = await file.read()
+        
+        # Convert bytes to image
+        image = Image.open(io.BytesIO(image_data))
+        image = image.convert("L")  # Convert to grayscale if needed
 
-    # OCR with pytesseract
-    text = pytesseract.image_to_string(image)
-    print("OCR text:", text)
+        # OCR to extract text
+        text = image_to_string(image)
+        print("OCR Result:", text)
 
-    # Extract two numbers using regex
-    numbers = re.findall(r'\d{8}', text.replace(" ", "").replace("x", "×"))
+        # Extract two 8-digit numbers and operator
+        match = re.search(r"(\d{8})\s*[\*xX×]\s*(\d{8})", text.replace(" ", ""))
+        if not match:
+            return {
+                "error": "Unable to extract two 8-digit numbers from image",
+                "text": text
+            }
 
-    if len(numbers) == 2:
-        result = int(numbers[0]) * int(numbers[1])
-        return JSONResponse({
+        num1 = int(match.group(1))
+        num2 = int(match.group(2))
+        result = num1 * num2
+
+        # Return result and email
+        return {
             "answer": result,
             "email": "23f3002037@ds.study.iitm.ac.in"
-        })
-    else:
-        return JSONResponse(
-            {"error": "Could not extract two 8-digit numbers."}, status_code=400
-        )
+        }
+
+    except Exception as e:
+        return {
+            "error": str(e)
+        }
